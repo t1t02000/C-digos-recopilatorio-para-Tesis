@@ -1,0 +1,129 @@
+# ——————————————————————————————
+# CLIENTE - Raspberry Pi Pico 2W
+# Botones + DFPlayer + Cliente TCP
+# ——————————————————————————————
+
+import network
+import socket
+import time
+from machine import Pin, UART
+
+# -------- PINES --------
+led_status = Pin("LED", Pin.OUT)
+
+btn_serve = Pin(14, Pin.IN, Pin.PULL_UP)
+btn_audio = Pin(16, Pin.IN, Pin.PULL_UP)
+
+# -------- DFPLAYER --------
+uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
+
+
+def dfplayer_play(track):
+    cmd = bytearray([
+        0x7E,
+        0xFF,
+        0x06,
+        0x03,
+        0x00,
+        0x00,
+        track,
+        0xEF
+    ])
+    uart.write(cmd)
+
+
+# -------- WIFI --------
+SSID = "ADM"
+PASSWORD = "DTI.2@25*"
+
+SERVER_IP = "10.5.25.159"
+PORT = 1234
+
+
+def conectar_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(SSID, PASSWORD)
+
+    while not wlan.isconnected():
+        time.sleep(0.5)
+
+    return wlan
+
+
+conectar_wifi()
+
+# -------- ESTADOS --------
+last_serve = 1
+last_audio = 1
+
+# -------- LOOP PRINCIPAL --------
+while True:
+
+    print("Intentando conectar...")
+    sock = None
+
+    try:
+        sock = socket.socket()
+        sock.connect((SERVER_IP, PORT))
+        sock.settimeout(1)
+
+        led_status.value(1)
+        print("Conectado")
+
+        last_ping = time.time()
+
+        while True:
+
+            # -------- BOTÓN SERVE --------
+            now_serve = btn_serve.value()
+
+            if last_serve == 1 and now_serve == 0:
+                print("SERVE PRESIONADO")
+                sock.send(b"SERVE")
+
+            last_serve = now_serve
+
+            # -------- BOTÓN AUDIO --------
+            now_audio = btn_audio.value()
+
+            if last_audio == 1 and now_audio == 0:
+                print("AUDIO PRESIONADO")
+                sock.send(b"AUDIO")
+
+            last_audio = now_audio
+
+            # -------- KEEP ALIVE --------
+            if time.time() - last_ping > 5:
+                sock.send(b"PING")
+                last_ping = time.time()
+
+            # -------- RECEPCIÓN --------
+            try:
+                data = sock.recv(1024)
+
+                if data == b"AUDIO_BTN":
+                    print("🔘 AUDIO BOTON")
+                    dfplayer_play(1)
+
+                elif data == b"AUDIO_SENSOR":
+                    print("🛒 AUDIO SENSOR")
+                    dfplayer_play(2)
+
+            except OSError:
+                pass
+
+            time.sleep(0.03)
+
+    except OSError as e:
+        print("Desconectado:", e)
+
+        led_status.value(0)
+
+        try:
+            if sock:
+                sock.close()
+        except:
+            pass
+
+        time.sleep(3)
