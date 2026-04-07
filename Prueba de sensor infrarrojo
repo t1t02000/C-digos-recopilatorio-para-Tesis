@@ -1,0 +1,21 @@
+from machine import Pin, ADC, I2C
+import utime
+from pico_i2c_lcd import I2cLcd
+
+adc = ADC(Pin(26))
+
+I2C_ADDR = 0x27
+i2c = I2C(0, sda=Pin(0), scl=Pin(1), freq=400000)
+lcd = I2cLcd(i2c, I2C_ADDR, 4, 16)
+
+def adc_to_distance(adc_value):
+    voltage = adc_value * 3.3 / 65535
+    distance = 27.86 / (voltage - 0.42)
+    return distance
+
+while True:
+    value = adc.read_u16()
+    dist = adc_to_distance(value)
+    lcd.clear()
+    lcd.putstr("Distancia:\n{:.1f} cm".format(dist))
+    utime.sleep(0.5)
