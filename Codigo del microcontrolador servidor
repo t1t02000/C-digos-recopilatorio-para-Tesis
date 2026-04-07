@@ -1,0 +1,174 @@
+# ——————————————————————————————
+# SERVIDOR - Raspberry Pi Pico W
+# Servo + Sharp GP2Y0A21 + Cliente
+# ——————————————————————————————
+
+import network
+import socket
+import time
+from machine import Pin, PWM, ADC
+
+# -------- PINES --------
+led_interno = Pin("LED", Pin.OUT)
+
+servo = PWM(Pin(15))
+servo.freq(50)
+
+sensor = ADC(26)
+
+# -------- SERVO CONFIG --------
+MIN_DUTY = 1200
+MAX_DUTY = 7600
+
+BASE_ANGLE = 10
+MOVE_ANGLE = 90
+
+current_angle = BASE_ANGLE
+
+
+def set_angle(angle):
+    duty = int(MIN_DUTY + (angle / 180) * (MAX_DUTY - MIN_DUTY))
+    servo.duty_u16(duty)
+
+
+def mover_servo():
+    print(">> SERVO ACTIVADO")
+
+    target = min(current_angle + MOVE_ANGLE, 180)
+
+    set_angle(target)
+    time.sleep(2)
+
+    set_angle(current_angle)
+
+
+# -------- SENSOR SHARP --------
+DIST_MIN = 10000
+DIST_MAX = 30000
+
+LECTURAS = 6          # promedio
+CONFIRMACIONES = 1    # cuántas veces seguidas debe cumplirse
+
+contador_ok = 0
+carrito_presente = False
+
+
+def leer_sensor_preciso():
+    global contador_ok, carrito_presente
+
+    total = 0
+
+    for _ in range(LECTURAS):
+        total += sensor.read_u16()
+        time.sleep(0.005)
+
+    promedio = total // LECTURAS
+
+    # Está dentro del rango EXACTO
+    if DIST_MIN <= promedio <= DIST_MAX:
+        contador_ok += 1
+    else:
+        contador_ok = 0
+        carrito_presente = False
+
+    # Confirmación estable
+    if contador_ok >= CONFIRMACIONES and not carrito_presente:
+        carrito_presente = True
+        contador_ok = 0
+
+        print(">> CARRITO A 10 CM CONFIRMADO")
+        return True
+
+    return False
+
+
+# -------- WIFI --------
+SSID = "ADM"
+PASSWORD = "DTI.2@25*"
+
+
+def conectar_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(SSID, PASSWORD)
+
+    for _ in range(12):
+        if wlan.isconnected():
+            return wlan
+        time.sleep(1)
+
+    return None
+
+
+wlan = conectar_wifi()
+
+while not wlan:
+    time.sleep(5)
+    wlan = conectar_wifi()
+
+ip = wlan.ifconfig()[0]
+print("Servidor en:", ip)
+
+
+# -------- TCP SERVER --------
+server = socket.socket()
+server.bind((ip, 1234))
+server.listen(1)
+server.settimeout(1)
+
+print("Esperando cliente...")
+
+
+while True:
+    try:
+        conn, addr = server.accept()
+
+        print("Cliente conectado:", addr)
+        led_interno.value(1)
+
+        conn.settimeout(1)
+
+        while True:
+
+            # 🔊 SENSOR → AUDIO
+            if leer_sensor_preciso():
+                try:
+                    print(">> AUDIO POR SENSOR")
+                    conn.send(b"AUDIO_SENSOR")
+                except OSError:
+                    break
+
+            try:
+                data = conn.recv(1024)
+
+                if not data:
+                    print("Cliente desconectado")
+                    break
+
+                cmd = data.decode().strip()
+
+                print("CMD:", cmd)
+
+                if cmd == "SERVE":
+                    mover_servo()
+                    conn.send(b"SERVE_OK")
+
+                elif cmd == "AUDIO":
+                    print(">> AUDIO POR BOTON")
+                    conn.send(b"AUDIO_BTN")
+
+                elif cmd == "PING":
+                    conn.send(b"PONG")
+
+            except OSError:
+                pass
+
+            time.sleep(0.05)
+
+        conn.close()
+        led_interno.value(0)
+
+        print("Esperando cliente...")
+
+    except OSError:
+        pass
