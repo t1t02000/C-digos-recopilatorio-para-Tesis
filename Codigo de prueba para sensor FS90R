@@ -1,0 +1,33 @@
+from machine import Pin, PWM
+import time
+
+boton_derecha = Pin(14, Pin.IN, Pin.PULL_DOWN)
+boton_izquierda = Pin(15, Pin.IN, Pin.PULL_DOWN)
+
+servo_pin = Pin(16)
+
+def activar_pwm():
+    pwm = PWM(servo_pin)
+    pwm.freq(50)
+    return pwm
+
+def girar_derecha():
+    pwm = activar_pwm()
+    pwm.duty_u16(6500)
+    time.sleep(2)
+    pwm.deinit()
+
+def girar_izquierda():
+    pwm = activar_pwm()
+    pwm.duty_u16(3500)
+    time.sleep(2)
+    pwm.deinit()
+
+while True:
+    if boton_derecha.value():
+        girar_derecha()
+        time.sleep(0.3)
+
+    elif boton_izquierda.value():
+        girar_izquierda()
+        time.sleep(0.3)
