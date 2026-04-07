@@ -1,0 +1,12 @@
+from machine import UART, Pin
+import time
+
+uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
+
+def play(track):
+    command = bytearray([0x7E,0xFF,0x06,0x03,0x00,0x00,track,0xEF])
+    uart.write(command)
+
+while True:
+    play(1)
+    time.sleep(5)
